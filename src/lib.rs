@@ -1,13 +1,16 @@
-
 extern crate num_cpus;
 
 mod flock;
 mod worker;
+mod actor;
 
-pub mod event_loop;
-pub mod task;
-pub mod event;
+mod event;
+mod kernel;
+mod task;
 
-pub mod pubsub;
+mod board;
 
 pub use flock::Flock;
+pub use kernel::Kernel;
+pub use task::Task;
+pub use event::{KernelCommand, Event, Syscall};

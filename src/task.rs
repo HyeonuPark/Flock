@@ -1,8 +1,8 @@
-use event_loop::EventLoop;
-use event::{InputOf, SyscallOf};
+use kernel::Kernel;
+use event::{Event, Syscall};
 
-pub trait Task {
-    type EventLoop: EventLoop;
+pub trait Task: Send {
+    type Kernel: Kernel;
 
-    fn resume(&mut self, input: InputOf<Self::EventLoop>) -> SyscallOf<Self::EventLoop>;
+    fn resume(&mut self, input: &[Event<Self::Kernel>]) -> Option<Syscall<Self::Kernel>>;
 }

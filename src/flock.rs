@@ -3,26 +3,28 @@ use std::sync::mpsc;
 use std::thread;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::sync::mpsc::Sender;
 
 use num_cpus;
 
-use event_loop::EventLoop;
+use kernel::Kernel;
 use task::Task;
-use worker::{Worker, WorkerId};
-use pubsub::Broker;
+use worker::{self, WorkerId};
+use event::Event;
+use board::Board;
 
-use event::Command::{Publish, Request, Listen, Ignore};
+use event::CoreCommand::{Publish, Listen, Ignore};
 
-pub struct Flock<L: EventLoop> {
-    event_loop: L,
+pub struct Flock<K: Kernel> {
+    kernel: K,
     worker_count: usize,
     prefix: String,
 }
 
-impl<L: EventLoop> Flock<L> {
-    pub fn new(event_loop: L) -> Self {
+impl<K: Kernel + 'static> Flock<K> {
+    pub fn new(kernel: K) -> Self {
         Flock {
-            event_loop: event_loop,
+            kernel: kernel,
             worker_count: num_cpus::get(),
             prefix: "flock-".into(),
         }
@@ -38,57 +40,64 @@ impl<L: EventLoop> Flock<L> {
         self
     }
 
-    pub fn run(self, task: Box<Task<EventLoop = L>>) {
+    pub fn run(self, task: Box<Task<Kernel = K>>) {
         assert!(self.worker_count > 0);
 
-        let (rotor, worker_count, prefix) = (&self.rotor, self.worker_count, self.prefix);
+        let kernel = &self.kernel;
 
-        let mut broker = Broker::new();
-        let sink = rotor.create_sink();
-        let channels = (0..worker_count).map(|_| mpsc::channel());
+        let mut board: Board<_, _, Sender<_>> = Board::new();
+        let channels = (0..self.worker_count).map(|_| mpsc::channel());
 
-        let mut workers = HashMap::new();
+        let mut listeners = HashMap::new();
         let mut threads = Vec::new();
 
         for (index, (sender, receiver)) in channels.enumerate() {
             let id = WorkerId(index);
-            let worker = Worker::new(id.clone(), receiver, sink.clone());
 
             let mut thread_name = String::new();
-            write!(thread_name, "{}{}", prefix, index)
+            write!(thread_name, "{}{}", self.prefix, index)
                 .expect("Failed to construct worker thread's name");
 
-            let thread_handle = thread::Builder::new()
-                .name(thread_name)
-                .spawn(move || { worker.run(); })
-                .expect("Failed to spawn worker thread");
+            let thread_handle = {
+                let id = id.clone();
+                let sink = kernel.create_sink();
+
+                thread::Builder::new()
+                    .name(thread_name)
+                    .spawn(move || { worker::run::<K>(id, receiver, sink); })
+                    .expect("Failed to spawn worker thread")
+            };
 
             threads.push(thread_handle);
-            workers.insert(id, sender);
+            listeners.insert(id, sender);
         }
+
+        let (listeners, threads) = (listeners, threads);
 
         // TODO: pass initial task to some worker to execute it
 
-        rotor.run(|command| {
+        let event_id_state = &mut 0;
+
+        kernel.run(|command| {
             match command {
-                Publish(event) => {
-                    broker.publish(event);
-                    Ok(())
+                Publish(topic, data, is_last) => {
+                    if let Some(senders) = board.query(&topic) {
+                        for sender in senders {
+                            sender.send(Event::new(topic.clone(), data.clone(),
+                                is_last, event_id_state));
+                        }
+                    }
                 }
-                Request(wid, token, req) => {
-                    broker.subscribe(token.clone(), wid.clone(), workers[&wid].clone());
-                    rotor.start_stream(token, req)
+                Listen(wid, topic) => {
+                    board.subscribe(topic, wid.clone(), listeners[&wid].clone());
                 }
-                Listen(wid, token) => {
-                    broker.subscribe(token, wid.clone(), workers[&wid].clone());
-                    Ok(())
+                Ignore(wid, topic) => {
+                    board.unsubscribe(topic, wid);
                 }
-                Ignore(wid, token) => {
-                    broker.unsubscribe(token, wid);
-                    Ok(())
-                }
-            }
+            };
         });
+
+        ::std::mem::drop(listeners);
 
         for handle in threads {
             handle.join().unwrap();
