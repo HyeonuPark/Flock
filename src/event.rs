@@ -1,5 +1,5 @@
 use worker::WorkerId;
-use rotor::Rotor;
+use event_loop::EventLoop;
 
 #[derive(Clone)]
 pub struct Event<Token, Data> {
@@ -15,8 +15,9 @@ pub enum Command<Token, Data, Req> {
     Ignore(WorkerId, Token),
 }
 
-pub type EventOf<R> = Event<<R as Rotor>::Token, <R as Rotor>::Data>;
-pub type CommandOf<R> = Command<<R as Rotor>::Token, <R as Rotor>::Data, <R as Rotor>::Request>;
+pub type EventOf<L> = Event<<L as EventLoop>::Token, <R as EventLoop>::Data>;
+pub type CommandOf<L> = Command<<L as EventLoop>::Token,
+    <L as EventLoop>::Data, <L as EventLoop>::Request>;
 
 pub enum Input<T, D> {
     T(T),
@@ -29,5 +30,6 @@ pub enum Syscall<T, D, Q> {
     Q(Q),
 }
 
-pub type InputOf<R> = Input<<R as Rotor>::Token, <R as Rotor>::Data>;
-pub type SyscallOf<R> = Syscall<<R as Rotor>::Token, <R as Rotor>::Data, <R as Rotor>::Request>;
+pub type InputOf<L> = Input<<L as EventLoop>::Token, <L as EventLoop>::Data>;
+pub type SyscallOf<L> = Syscall<<L as EventLoop>::Token,
+    <L as EventLoop>::Data, <L as EventLoop>::Request>;

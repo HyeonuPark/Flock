@@ -6,25 +6,25 @@ use std::fmt::Write;
 
 use num_cpus;
 
-use rotor::Rotor;
+use event_loop::EventLoop;
 use task::Task;
 use worker::{Worker, WorkerId};
 use pubsub::Broker;
 
 use event::Command::{Publish, Request, Listen, Ignore};
 
-pub struct Turbine<R: Rotor> {
-    rotor: R,
+pub struct Flock<L: EventLoop> {
+    event_loop: L,
     worker_count: usize,
     prefix: String,
 }
 
-impl<R: Rotor> Turbine<R> {
-    pub fn new(rotor: R) -> Self {
-        Turbine {
-            rotor: rotor,
+impl<L: EventLoop> Flock<L> {
+    pub fn new(event_loop: L) -> Self {
+        Flock {
+            event_loop: event_loop,
             worker_count: num_cpus::get(),
-            prefix: "turbine-".into(),
+            prefix: "flock-".into(),
         }
     }
 
@@ -38,7 +38,7 @@ impl<R: Rotor> Turbine<R> {
         self
     }
 
-    pub fn run(self, task: Box<Task<Rotor = R>>) {
+    pub fn run(self, task: Box<Task<EventLoop = L>>) {
         assert!(self.worker_count > 0);
 
         let (rotor, worker_count, prefix) = (&self.rotor, self.worker_count, self.prefix);

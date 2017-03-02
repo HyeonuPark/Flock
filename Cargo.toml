@@ -1,5 +1,5 @@
 [package]
-name = "turbine"
+name = "flock"
 version = "0.0.0"
 authors = ["HyeonuPark <nemo1275@gmail.com>"]
 

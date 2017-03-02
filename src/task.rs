@@ -1,8 +1,8 @@
-use rotor::Rotor;
+use event_loop::EventLoop;
 use event::{InputOf, SyscallOf};
 
 pub trait Task {
-    type Rotor: Rotor;
+    type EventLoop: EventLoop;
 
-    fn resume(&mut self, input: InputOf<Self::Rotor>) -> SyscallOf<Self::Rotor>;
+    fn resume(&mut self, input: InputOf<Self::EventLoop>) -> SyscallOf<Self::EventLoop>;
 }

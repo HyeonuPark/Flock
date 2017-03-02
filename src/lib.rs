@@ -1,13 +1,13 @@
 
 extern crate num_cpus;
 
-mod turbine;
+mod flock;
 mod worker;
 
-pub mod rotor;
+pub mod event_loop;
 pub mod task;
 pub mod event;
 
 pub mod pubsub;
 
-pub use turbine::Turbine;
+pub use flock::Flock;

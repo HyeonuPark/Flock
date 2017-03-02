@@ -4,7 +4,7 @@ use std::error::Error;
 use event::Command;
 use pubsub::Sink;
 
-pub trait Rotor: Sized {
+pub trait EventLoop: Sized {
     type Token: Clone + Send + Hash + Eq + 'static;
     type Data: Clone + Send + 'static;
     type Request: Send + 'static;
