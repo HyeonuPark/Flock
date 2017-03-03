@@ -4,11 +4,12 @@ use std::thread;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::mpsc::Sender;
+use std::iter;
 
 use num_cpus;
 
 use kernel::Kernel;
-use task::Task;
+use task::BoxTask;
 use worker::{self, WorkerId};
 use event::Event;
 use board::Board;
@@ -40,18 +41,21 @@ impl<K: Kernel + 'static> Flock<K> {
         self
     }
 
-    pub fn run(self, task: Box<Task<Kernel = K>>) {
+    pub fn run(self, task: BoxTask<K>) {
         assert!(self.worker_count > 0);
 
         let kernel = &self.kernel;
 
         let mut board: Board<_, _, Sender<_>> = Board::new();
-        let channels = (0..self.worker_count).map(|_| mpsc::channel());
-
         let mut listeners = HashMap::new();
         let mut threads = Vec::new();
 
-        for (index, (sender, receiver)) in channels.enumerate() {
+        let worker_params = iter::once(Some(task))
+            .chain((1..self.worker_count).map(|_| None))
+            .enumerate()
+            .map(|(idx, task)| (idx, task, mpsc::channel()));
+
+        for (index, init_task, (sender, receiver)) in worker_params {
             let id = WorkerId(index);
 
             let mut thread_name = String::new();
@@ -64,7 +68,9 @@ impl<K: Kernel + 'static> Flock<K> {
 
                 thread::Builder::new()
                     .name(thread_name)
-                    .spawn(move || { worker::run::<K>(id, receiver, sink); })
+                    .spawn(move || {
+                        worker::run::<K>(id, init_task, receiver, sink);
+                    })
                     .expect("Failed to spawn worker thread")
             };
 
@@ -84,12 +90,13 @@ impl<K: Kernel + 'static> Flock<K> {
                     if let Some(senders) = board.query(&topic) {
                         for sender in senders {
                             sender.send(Event::new(topic.clone(), data.clone(),
-                                is_last, event_id_state));
+                                is_last, event_id_state)).unwrap();
                         }
                     }
                 }
                 Listen(wid, topic) => {
-                    board.subscribe(topic, wid.clone(), listeners[&wid].clone());
+                    let listener = listeners[&wid].clone();
+                    board.subscribe(topic, wid.clone(), listener);
                 }
                 Ignore(wid, topic) => {
                     board.unsubscribe(topic, wid);

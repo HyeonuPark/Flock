@@ -11,6 +11,6 @@ mod task;
 mod board;
 
 pub use flock::Flock;
-pub use kernel::Kernel;
+pub use kernel::{Kernel, Sink};
 pub use task::Task;
-pub use event::{KernelCommand, Event, Syscall};
+pub use event::{Event, Syscall, KernelCommand, CoreCommand};
