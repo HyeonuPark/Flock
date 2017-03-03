@@ -2,6 +2,10 @@
 name = "flock"
 version = "0.1.0"
 authors = ["HyeonuPark <nemo1275@gmail.com>"]
+description = "Parallel runner for asynchronous tasks."
+documentation = "https://docs.rs/crate/flock/0.1.1"
+repository = "https://github.com/HyeonuPark/Flock"
+license = "Apache-2.0/MIT"
 
 [dependencies]
 num_cpus = "1.2"
