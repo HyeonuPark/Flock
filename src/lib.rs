@@ -1,16 +1,15 @@
 extern crate num_cpus;
+extern crate crossbeam;
+extern crate either;
+extern crate rand;
 
-mod flock;
+mod core;
 mod worker;
+mod event;
 mod actor;
 
-mod event;
-mod kernel;
-mod task;
+pub mod broker;
 
-mod board;
+pub mod kernel;
 
-pub use flock::Flock;
-pub use kernel::{Kernel, Sink};
-pub use task::Task;
-pub use event::{Event, Syscall, KernelCommand, CoreCommand};
+pub use core::{Builder, run};

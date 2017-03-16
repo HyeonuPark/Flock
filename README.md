@@ -10,14 +10,14 @@ This is what exactly I want to achieve with Flock. Coroutines(tasks) are distrib
 
 ## Current state
 
-v0.1
+v0.2
 
-Work-stealing is not implemented, so all workers except first one keep idle.
+Every core concepts are implemented.
 
-As it's just identical scenario with single-threaded situation, implementation of work-stealing should not affect program semantics.
+## Milestones
 
-## Possible todos
+- [ ] Implement cancelable stream
 
-- Cancelable stream
-- Prioritize actors before execute to maximize cache hit
-- Specialize worker-local task to not emit events to kernel
+- [ ] Implement main thread bound task
+
+- [ ] Gather some user feedback

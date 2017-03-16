@@ -1,11 +1,15 @@
 [package]
 name = "flock"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["HyeonuPark <nemo1275@gmail.com>"]
 description = "Parallel runner for asynchronous tasks."
-documentation = "https://docs.rs/crate/flock/0.1.1"
+documentation = "https://docs.rs/crate/flock/0.2.0"
 repository = "https://github.com/HyeonuPark/Flock"
+readme = "README.md"
 license = "Apache-2.0/MIT"
 
 [dependencies]
 num_cpus = "1.2"
+crossbeam = "0.2"
+either = "1.0"
+rand = "0.3"

@@ -1,56 +1,47 @@
-use worker::WorkerId;
+use std::sync::mpsc::Sender;
+
 use kernel::Kernel;
-use task::Task;
+use worker::WorkerId;
+use actor::Task;
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EventId(pub u64);
 
 pub struct Event<K: Kernel> {
-    id: u64,
+    pub id: EventId,
     pub topic: K::Token,
-    pub data: K::Data,
-    pub is_last: bool,
+    pub data: Option<K::Data>,
 }
 
-impl<K: Kernel> Event<K> {
-    pub fn new(topic: K::Token, data: K::Data, is_last: bool, id_state: &mut u64) -> Self {
-        let (nid, overflowed) = (*id_state).overflowing_add(1);
-        assert!(!overflowed, "Failed to allocate a new id for the event");
-        *id_state = nid;
+pub enum Command<K: Kernel> {
+    Publish(K::Token, K::Data),
+    Kill(K::Token),
+    Listen(K::Token, K::Token),
+    Ignore(K::Token, K::Token),
+    Spawn(K::Token, K::Token, Sender<Event<K>>),
+    Sleep(WorkerId, K::Token, EventId),
+}
 
-        Event {
-            id: nid,
-            topic: topic,
-            data: data,
-            is_last: is_last,
-        }
-    }
+pub enum Syscall<K: Kernel> {
+    Command(Command<K>),
+    Open(K::Token, K::OpenParam, K::Token),
+}
+
+pub enum Request<K: Kernel> {
+    Publish(K::Data),
+    Kill,
+    Listen(K::Token),
+    Ignore(K::Token),
+    Open(K::OpenParam, K::Token),
+    Spawn(Task<K>, K::Token),
 }
 
 impl<K: Kernel> Clone for Event<K> {
     fn clone(&self) -> Self {
         Event {
-            id: self.id,
+            id: self.id.clone(),
             topic: self.topic.clone(),
             data: self.data.clone(),
-            is_last: self.is_last,
         }
     }
-}
-
-pub enum CoreCommand<K: Kernel> {
-    Publish(K::Token, K::Data, bool),
-    Listen(WorkerId, K::Token),
-    Ignore(WorkerId, K::Token),
-}
-
-pub enum KernelCommand<K: Kernel> {
-    ToCore(CoreCommand<K>),
-    Request(WorkerId, K::Token, K::Request),
-}
-
-pub enum Syscall<K: Kernel> {
-    Yield(K::Data),
-    Return(K::Data),
-    Listen(K::Token),
-    Ignore(K::Token),
-    Request(K::Token, K::Request),
-    Spawn(K::Token, Box<Task<Kernel = K>>),
 }

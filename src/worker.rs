@@ -1,98 +1,106 @@
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::collections::HashMap;
+
+use crossbeam::sync::chase_lev::{Worker, Stealer};
+use crossbeam::sync::chase_lev::Steal::{Abort, Data, Empty};
 
 use kernel::{Kernel, Sink};
-use event::Event;
-use actor::ActorHandle;
-use task::BoxTask;
-use board::Board;
+use actor::Actor;
 
-use event::Syscall::{Yield, Return, Listen, Ignore, Request, Spawn};
-use event::CoreCommand::{Publish as CPublish, Listen as CListen, Ignore as CIgnore};
-use event::KernelCommand::{ToCore as Core, Request as KRequest};
+use event::{EventId, Command as Cmd};
+use event::Syscall::{Command, Open as SysOpen};
+use event::Request::{Publish, Listen, Ignore, Open, Spawn, Kill};
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct WorkerId(pub usize);
 
-pub fn run<K: Kernel>(wid: WorkerId, initial_task: Option<BoxTask<K>>,
-    downstream: Receiver<Event<K>>, upstream: K::Sink) {
+pub fn run<K: Kernel>(wid: WorkerId, init_actor: Option<Actor<K>>,
+    mut schedule: Worker<Actor<K>>, colleagues: Vec<Stealer<Actor<K>>>,
+    downstream: Receiver<K::Token>, upstream: K::Sink) {
 
-    let mut board: Board<K::Token, K::Token, ActorHandle<K>> = Board::new();
-    let mut exec_buf = Vec::new();
-    let mut exec_stack = initial_task.into_iter()
-        .map(|task| ActorHandle::new(K::create_token(), task))
-        .collect::<Vec<_>>();
+    let mut backlog = HashMap::<K::Token, Actor<K>>::new();
 
-    macro_rules! accept {
-        ($event:ident) => {
-            if let Some(actors) = board.query(&$event.topic) {
-                for actor in actors {
-                    actor.inbox_mut().push_back($event.clone());
+    if let Some(actor) = init_actor {
+        schedule.push(actor);
+    }
 
-                    if actor.inbox().len() == 1 {
-                        exec_buf.push((*actor).clone());
+    let mut colleagues = colleagues.iter().cycle();
+
+    let err_invalid_token = "Worker received invalid token from downstream";
+
+    loop {
+        loop {
+            match downstream.try_recv() {
+                Ok(token) => {
+                    schedule.push(
+                        backlog.remove(&token).expect(err_invalid_token)
+                    );
+                }
+                Err(err) => match err {
+                    TryRecvError::Empty => break,
+                    TryRecvError::Disconnected => {
+                        // cleanup logic here
+                        return;
                     }
                 }
             }
         }
-    }
 
-    macro_rules! process {
-        ($actor: ident, $syscall: ident, $state: ident) => (match $syscall {
-            Yield(data) => {
-                upstream.post(Core(CPublish($actor.id(), data, false)));
-            }
-            Return(data) => {
-                upstream.post(Core(CPublish($actor.id(), data, true)));
+        let maybe_actor = schedule.try_pop()
+            .or_else(|| {
+                let stealer = colleagues.next().unwrap();
 
-                for topic in $actor.interests().iter() {
-                    board.unsubscribe(topic.clone(), $actor.id());
-                }
-
-                break;
-            }
-            Listen(topic) => {
-                $actor.interests_mut().insert(topic.clone());
-                upstream.post(Core(CListen(wid.clone(), topic)));
-            }
-            Ignore(topic) => {
-                $actor.interests_mut().remove(&topic);
-                upstream.post(Core(CIgnore(wid.clone(), topic)));
-            }
-            Request(topic, req) => {
-                upstream.post(KRequest(wid.clone(), topic, req));
-            }
-            Spawn(token, task) => {
-                $state = Some((token, task));
-                break;
-            }
-        })
-    }
-
-    while let Ok(event) = downstream.recv() {
-        accept!(event);
-
-        loop {
-            match exec_stack.pop() {
-                Some(actor) => {
-                    let mut state = None;
-
-                    for syscall in actor.run() {
-                        process!(actor, syscall, state);
-                    }
-
-                    if let Some((token, task)) = state {
-                        exec_stack.push(actor);
-                        exec_stack.push(ActorHandle::new(token, task));
+                loop {
+                    match stealer.steal() {
+                        Empty => return None,
+                        Abort => continue,
+                        Data(actor) => return Some(actor),
                     }
                 }
-                None => match exec_buf.pop() {
-                    Some(actor) => exec_stack.push(actor),
-                    None => break,
+            });
+
+        if let Some(mut actor) = maybe_actor {
+            let actor_id = actor.id.clone();
+            let id = || actor_id.clone();
+
+            let mut flag_push_actor = false;
+            let mut flag_kill = false;
+
+            for req in &mut actor {
+                upstream.post(match req {
+                    Publish(data) => Command(Cmd::Publish(id(), data)),
+                    Kill => {
+                        flag_kill = true;
+
+                        Command(Cmd::Kill(id()))
+                    }
+                    Listen(topic) => Command(Cmd::Listen(id(), topic)),
+                    Ignore(topic) => Command(Cmd::Ignore(id(), topic)),
+                    Open(param, topic) => SysOpen(id(), param, topic),
+                    Spawn(task, topic) => {
+                        let (sender, new_actor) = Actor::create(task);
+                        schedule.push(new_actor);
+                        flag_push_actor = true;
+
+                        Command(Cmd::Spawn(id(), topic, sender))
+                    }
+                });
+
+                if flag_push_actor || flag_kill {
+                    break;
                 }
             }
 
-            for event in downstream.try_iter() {
-                accept!(event);
+            if !flag_kill {
+                let eid = match actor.last_eid() {
+                    Some(eid) => eid,
+                    None => EventId(0),
+                };
+                upstream.post(Command(Cmd::Sleep(wid.clone(), id(), eid)));
+            }
+
+            if flag_push_actor {
+                schedule.push(actor);
             }
         }
     }
